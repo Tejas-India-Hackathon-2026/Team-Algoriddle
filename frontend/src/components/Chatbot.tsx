@@ -10,6 +10,7 @@ interface Message {
 }
 
 export const Chatbot: React.FC = () => {
+  
   const { language, t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
