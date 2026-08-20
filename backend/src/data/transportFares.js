@@ -13,6 +13,7 @@
 
 export const transportFares = [
   // --- PATNA LOCAL & REGIONAL ---
+  
   {
     id: "fare_pat_01",
     origin: "Patna Junction",
