@@ -19,6 +19,10 @@ const WMO_CODE_MAP = {
   81: { condition: "Moderate Showers", rain: 85 },
   82: { condition: "Violent Showers", rain: 95 },
   95: { condition: "Thunderstorm", rain: 85 }
+
+
+
+  
 };
 
 // Dynamic backpack checklist generator based on weather metrics
