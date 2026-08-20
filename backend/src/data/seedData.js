@@ -17,6 +17,7 @@ export const destinations = [
     aiInsight: "Patna serves as the perfect launchpad for your journey. Golghar and Patna Museum are top recommendation matches for your profile."
   },
   {
+    
     id: "rajgir",
     name: "Rajgir",
     description: "A beautiful valley surrounded by seven hills, famous for its hot springs, Ropeway, Vishwa Shanti Stupa, and ancient history with Buddha and Mahavira.",
