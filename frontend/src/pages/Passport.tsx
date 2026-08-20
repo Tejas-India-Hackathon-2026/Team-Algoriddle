@@ -10,7 +10,7 @@ export default function Passport() {
   const badges = [
     { id: 'hist', name: 'History Hunter', desc: 'Visit ancient ruins of Nalanda or Pataliputra', unlocked: true, icon: '🏛️' },
     { id: 'food', name: 'Bihar Foodie', desc: 'Book a cooking class or review a Litti shop', unlocked: true, icon: '🍲' },
-    { id: 'nature', name: 'Nature Explorer', desc: 'Visit Valmiki Tiger Reserve or waterfalls', unlocked: false, icon: '🌿' },
+    { id: 'nature', name: 'Nature Explorer', desc: 'Visit Valmiki Tiger Rese rve or waterfalls', unlocked: false, icon: '🌿' },
     { id: 'heritage', name: 'Heritage Explorer', desc: 'Visit a UNESCO site and caves', unlocked: true, icon: '🎖️' },
     { id: 'gems', name: 'Hidden Gem Hunter', desc: 'Find 3 spots with a Gem Score over 90', unlocked: false, icon: '🧭' }
   ];
