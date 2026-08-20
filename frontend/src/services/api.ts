@@ -558,12 +558,12 @@ export async function fetchDualRoutes(origin: any, destination: any, transport?:
   }
 }
 
-export async function recalculateRoute(currentLat: number, currentLng: number, destination: string, transport?: string) {
+export async function recalculateRoute(currentLat: number, currentLng: number, destination: string, transport?: string, waypoints?: any[]) {
   try {
     const res = await fetch(`${API_BASE}/routes/recalculate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentLat, currentLng, destination, transport })
+      body: JSON.stringify({ currentLat, currentLng, destination, transport, waypoints: waypoints || [] })
     });
     if (!res.ok) throw new Error("Recalculation failed");
     return await res.json();

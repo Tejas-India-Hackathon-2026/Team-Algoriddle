@@ -5,7 +5,7 @@ import {
   Clock, Shield, DollarSign, CloudSun, Hotel, 
   Utensils, Navigation, AlertCircle, Compass, Calendar, 
   Map, Sparkles, CheckCircle2, ChevronDown, ChevronUp,
-  CreditCard, ShieldCheck, HelpCircle, PhoneCall, Radio, Zap
+  CreditCard, ShieldCheck, HelpCircle, PhoneCall, Radio, Zap, X
 } from 'lucide-react';
 import L from 'leaflet';
 import { useLanguage } from '../context/LanguageContext.tsx';
@@ -73,6 +73,13 @@ export default function Itinerary() {
   const [routePulse, setRoutePulse] = useState<any>(null);
   const [isRoutePulseExpanded, setIsRoutePulseExpanded] = useState(false);
 
+  // My Vehicle & AI Journey Stops State
+  const [selectedVehicle, setSelectedVehicle] = useState<'Car' | 'Bike' | 'Bus'>('Car');
+  const [journeyStops, setJourneyStops] = useState<any[]>([]);
+  const [stopReachedToast, setStopReachedToast] = useState<{ name: string; number: number } | null>(null);
+  const [reorderSuggestion, setReorderSuggestion] = useState<{ suggestedStopName: string; currentStopName: string; timeSavings: string; suggestedStopId: string } | null>(null);
+  const [isTimelineExpanded, setIsTimelineExpanded] = useState(true);
+
   // Live location & geocoding state
   const [liveCoords, setLiveCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [liveLocationName, setLiveLocationName] = useState<string | null>(null);
@@ -107,6 +114,26 @@ export default function Itinerary() {
       setTrip(loadedTrip);
       localStorage.setItem('yatra_active_trip', JSON.stringify(loadedTrip));
       
+      // Initialize AI Journey Stops from itinerary waypoints
+      const rawWaypoints = loadedTrip.mapData?.waypoints || [];
+      const initStops = rawWaypoints.map((wp: any, idx: number) => ({
+        id: wp.id || `stop_${idx}`,
+        order: idx + 1,
+        name: wp.name || `Stop ${idx + 1}`,
+        lat: wp.lat,
+        lng: wp.lng,
+        category: wp.category || (wp.type === 'start' ? 'Departure' : wp.type === 'return' ? 'Arrival' : 'Attraction'),
+        type: wp.type || 'attraction',
+        time: wp.time || 'Visit Point',
+        description: wp.description || 'AI Recommended cultural & heritage stop',
+        whyVisit: wp.description || 'Historic local landmark with cultural significance',
+        suggestedDuration: wp.duration || '25 min stop',
+        status: (wp.type === 'start' ? 'visited' : 'upcoming') as 'upcoming' | 'approaching' | 'visited' | 'skipped',
+        visitedAt: wp.type === 'start' ? '08:30 AM' : undefined,
+        distanceFromUser: 0
+      }));
+      setJourneyStops(initStops);
+
       if (loadedTrip.startLocation && loadedTrip.startLocation.latitude) {
         setLiveCoords({ lat: loadedTrip.startLocation.latitude, lng: loadedTrip.startLocation.longitude });
         setLiveLocationName(loadedTrip.startLocation.name);
@@ -276,6 +303,72 @@ export default function Itinerary() {
     }
   };
 
+  // Vehicle change handler
+  const handleVehicleChange = async (veh: 'Car' | 'Bike' | 'Bus') => {
+    setSelectedVehicle(veh);
+    const startOrigin = liveCoords 
+      ? { latitude: liveCoords.lat, longitude: liveCoords.lng, name: liveLocationName || "📍 Current Location" }
+      : (trip?.startLocation || trip?.userCoordinates || trip?.startingLocation);
+    const remainingWps = journeyStops
+      .filter(s => s.status !== 'visited' && s.status !== 'skipped')
+      .map(s => ({ lat: s.lat, lng: s.lng, name: s.name }));
+    const dual = await fetchDualRoutes(startOrigin, trip?.destination, veh, remainingWps.length > 0 ? remainingWps : trip?.mapData?.waypoints);
+    if (dual) setDualRoutes(dual);
+  };
+
+  // Skip an AI stop
+  const handleSkipStop = async (stopId: string) => {
+    const updated = journeyStops.map(s => s.id === stopId ? { ...s, status: 'skipped' as const } : s);
+    setJourneyStops(updated);
+    
+    const startOrigin = liveCoords 
+      ? { latitude: liveCoords.lat, longitude: liveCoords.lng, name: liveLocationName || "📍 Current Location" }
+      : (trip?.startLocation || trip?.userCoordinates || trip?.startingLocation);
+    
+    const remainingWps = updated
+      .filter(s => s.status !== 'visited' && s.status !== 'skipped')
+      .map(s => ({ lat: s.lat, lng: s.lng, name: s.name }));
+
+    const dual = await fetchDualRoutes(startOrigin, trip?.destination, selectedVehicle, remainingWps);
+    if (dual) setDualRoutes(dual);
+  };
+
+  // Navigate directly to a specific AI stop
+  const handleNavigateToStop = async (stopId: string) => {
+    const target = journeyStops.find(s => s.id === stopId);
+    if (!target) return;
+
+    const remaining = journeyStops.filter(s => s.id !== stopId && s.status !== 'visited' && s.status !== 'skipped');
+    const reordered = [target, ...remaining];
+    
+    const startOrigin = liveCoords 
+      ? { latitude: liveCoords.lat, longitude: liveCoords.lng, name: liveLocationName || "📍 Current Location" }
+      : (trip?.startLocation || trip?.userCoordinates || trip?.startingLocation);
+
+    const remainingWps = reordered.map(s => ({ lat: s.lat, lng: s.lng, name: s.name }));
+    const dual = await fetchDualRoutes(startOrigin, trip?.destination, selectedVehicle, remainingWps);
+    if (dual) setDualRoutes(dual);
+    startNavigation();
+  };
+
+  // Apply suggested smarter stop order
+  const handleApplySuggestedOrder = async () => {
+    if (!reorderSuggestion) return;
+    const targetId = reorderSuggestion.suggestedStopId;
+    const target = journeyStops.find(s => s.id === targetId);
+    if (target) {
+      const remaining = journeyStops.filter(s => s.id !== targetId && s.status !== 'visited' && s.status !== 'skipped');
+      const reordered = [target, ...remaining];
+      const startOrigin = liveCoords 
+        ? { latitude: liveCoords.lat, longitude: liveCoords.lng, name: liveLocationName || "📍 Current Location" }
+        : (trip?.startLocation || trip?.userCoordinates || trip?.startingLocation);
+      const remainingWps = reordered.map(s => ({ lat: s.lat, lng: s.lng, name: s.name }));
+      const dual = await fetchDualRoutes(startOrigin, trip?.destination, selectedVehicle, remainingWps);
+      if (dual) setDualRoutes(dual);
+    }
+    setReorderSuggestion(null);
+  };
+
   const activeRoute = selectedRouteType === 'FASTEST' ? dualRoutes?.fastest : dualRoutes?.safer;
   const activeSteps: any[] = activeRoute?.steps || [];
   const currentStep = activeSteps[currentStepIndex] || activeSteps[0];
@@ -284,7 +377,7 @@ export default function Itinerary() {
   // Start Live Road Navigation
   const startNavigation = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported on this device.');
+      alert('Geolocation is not supported on this device. Using planned itinerary route.');
       return;
     }
 
@@ -314,7 +407,58 @@ export default function Itinerary() {
           liveMarkerRef.current.setLatLng([lat, lng]);
         }
 
-        // 1. Destination arrival detection (within 40m)
+        // Camera auto-pan if user is not actively dragging map
+        if (mapRef.current && !isMapUserPanned) {
+          mapRef.current.panTo([lat, lng], { animate: true });
+        }
+
+        // 1. Proximity Stop Detection (<150m marks Visited, <10km marks Approaching)
+        setJourneyStops(prevStops => {
+          let hasVisitedNew = false;
+          const updated = prevStops.map(stop => {
+            if (stop.status === 'visited' || stop.status === 'skipped') return stop;
+            const d = getDistanceInMeters(lat, lng, stop.lat, stop.lng);
+            if (d <= 150) {
+              hasVisitedNew = true;
+              setStopReachedToast({ name: stop.name, number: stop.order });
+              setTimeout(() => setStopReachedToast(null), 5000);
+              return { 
+                ...stop, 
+                status: 'visited' as const, 
+                visitedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
+                distanceFromUser: Math.round(d) 
+              };
+            } else if (d <= 10000) {
+              return { ...stop, status: 'approaching' as const, distanceFromUser: Math.round(d) };
+            } else {
+              return { ...stop, status: 'upcoming' as const, distanceFromUser: Math.round(d) };
+            }
+          });
+
+          // Check smarter next stop suggestions
+          const remaining = updated.filter(s => s.status !== 'visited' && s.status !== 'skipped');
+          if (remaining.length >= 2) {
+            const distCurrent = getDistanceInMeters(lat, lng, remaining[0].lat, remaining[0].lng);
+            for (let i = 1; i < remaining.length; i++) {
+              const alt = remaining[i];
+              const distAlt = getDistanceInMeters(lat, lng, alt.lat, alt.lng);
+              if (distAlt < distCurrent - 5000) {
+                const timeSaved = Math.max(5, Math.round((distCurrent - distAlt) / 500));
+                setReorderSuggestion({
+                  suggestedStopName: alt.name,
+                  currentStopName: remaining[0].name,
+                  timeSavings: `${timeSaved} min`,
+                  suggestedStopId: alt.id
+                });
+                break;
+              }
+            }
+          }
+
+          return updated;
+        });
+
+        // 2. Destination arrival detection (within 45m)
         const destCoords = dualRoutes?.destCoords || (trip?.mapData?.waypoints?.slice(-1)[0] ? [trip.mapData.waypoints.slice(-1)[0].lat, trip.mapData.waypoints.slice(-1)[0].lng] : null);
         if (destCoords) {
           const distToDest = getDistanceInMeters(lat, lng, destCoords[0], destCoords[1]);
@@ -326,7 +470,7 @@ export default function Itinerary() {
           }
         }
 
-        // 2. Step Maneuver Progression
+        // 3. Step Maneuver Progression
         const steps = (selectedRouteType === 'FASTEST' ? dualRoutes?.fastest : dualRoutes?.safer)?.steps || [];
         if (steps.length > 0 && currentStepIndex < steps.length) {
           const targetStep = steps[currentStepIndex];
@@ -344,10 +488,9 @@ export default function Itinerary() {
           }
         }
 
-        // 3. Off-route detection & auto-reroute
+        // 4. Off-route detection & auto-reroute
         const polyline = (selectedRouteType === 'FASTEST' ? dualRoutes?.fastest : dualRoutes?.safer)?.polyline || [];
         if (polyline.length > 0 && trip) {
-          // Find minimum distance to route polyline
           let minDistanceToRoute = Infinity;
           for (let i = 0; i < polyline.length; i += 3) {
             const pt = polyline[i];
@@ -355,13 +498,16 @@ export default function Itinerary() {
             if (d < minDistanceToRoute) minDistanceToRoute = d;
           }
 
-          // If off-route (> 180 meters) and not rerouted in last 8 seconds
           const now = Date.now();
           if (minDistanceToRoute > 180 && now - lastRecalcTimeRef.current > 8000) {
             lastRecalcTimeRef.current = now;
             setRouteChangedNotice("⚠️ Route deviation detected — Recalculating from your new live position...");
             
-            const recalc = await recalculateRoute(lat, lng, trip.destination, trip.transport);
+            const remainingWps = journeyStops
+              .filter(s => s.status !== 'visited' && s.status !== 'skipped')
+              .map(s => ({ lat: s.lat, lng: s.lng, name: s.name }));
+
+            const recalc = await recalculateRoute(lat, lng, trip.destination, selectedVehicle, remainingWps);
             if (recalc) {
               setDualRoutes(recalc);
               setCurrentStepIndex(0);
@@ -523,50 +669,103 @@ export default function Itinerary() {
         }
       }
 
-      // 2. Render Verified Itinerary Markers
-      waypoints.forEach((wp: any) => {
-        if (typeof wp.lat !== 'number' || typeof wp.lng !== 'number' || isNaN(wp.lat) || isNaN(wp.lng)) return;
+      // 2. Render Numbered AI Recommended Stops on Map
+      const displayStops = journeyStops.length > 0 ? journeyStops : waypoints.map((wp: any, idx: number) => ({
+        id: wp.id || `stop_${idx}`,
+        order: idx + 1,
+        name: wp.name,
+        lat: wp.lat,
+        lng: wp.lng,
+        category: wp.category || 'Attraction',
+        status: 'upcoming',
+        suggestedDuration: wp.duration || '25 min stop',
+        description: wp.description || 'AI Recommended cultural landmark'
+      }));
 
-        let color = '#C05621';
-        let fillColor = '#DD6B20';
-        let radius = 7;
-        let typeBadge = wp.category || "Attraction";
+      displayStops.forEach((stop: any) => {
+        if (typeof stop.lat !== 'number' || typeof stop.lng !== 'number' || isNaN(stop.lat) || isNaN(stop.lng)) return;
 
-        if (wp.type === 'start') {
-          color = '#1D4ED8';
-          fillColor = '#3B82F6';
-          radius = 10;
-          typeBadge = "Departure Point";
-        } else if (wp.type === 'return') {
-          color = '#4338CA';
-          fillColor = '#6366F1';
-          radius = 10;
-          typeBadge = "Return Arrival";
-        } else if (wp.type === 'accommodation') {
-          color = '#047857';
-          fillColor = '#10B981';
-          radius = 8;
-          typeBadge = "Accommodation";
-        }
+        const isVisited = stop.status === 'visited';
+        const isApproaching = stop.status === 'approaching';
+        const isSkipped = stop.status === 'skipped';
 
-        const marker = L.circleMarker([wp.lat, wp.lng], {
-          color: color,
-          fillColor: fillColor,
-          fillOpacity: 0.95,
-          radius: radius,
-          weight: 2.5
-        }).addTo(map);
+        const bgCol = isVisited ? '#059669' : isSkipped ? '#9CA3AF' : isApproaching ? '#D97706' : '#C05621';
+        const borderCol = isApproaching ? '#FBBF24' : '#FFFFFF';
 
-        const popupContent = `
-          <div style="font-family: sans-serif; font-size: 12px; line-height: 1.4; padding: 2px;">
-            <span style="display:inline-block; font-size:10px; font-weight:bold; color:white; background:${color}; padding:2px 6px; border-radius:4px; margin-bottom:4px;">${typeBadge}</span><br/>
-            <strong style="color: #1F2937; font-size: 13px;">${wp.name}</strong><br/>
-            <span style="color: #4B5563;">🕒 ${wp.time || 'Visit Point'}</span><br/>
-            <small style="color: #6B7280;">${wp.description || ''}</small>
+        const customIcon = L.divIcon({
+          className: 'ai-journey-stop-icon',
+          html: `
+            <div style="
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 28px;
+              height: 28px;
+              border-radius: 50%;
+              background: ${bgCol};
+              color: white;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              font-size: 11px;
+              font-weight: bold;
+              box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+              border: 2px solid ${borderCol};
+              ${isSkipped ? 'text-decoration: line-through; opacity: 0.55;' : ''}
+              cursor: pointer;
+            ">
+              ${isVisited ? '✓' : isSkipped ? '↷' : stop.order}
+            </div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+
+        const marker = L.marker([stop.lat, stop.lng], { icon: customIcon }).addTo(map);
+
+        const statusLabel = isVisited ? '✓ Visited' : isApproaching ? '◉ Approaching (<10km)' : isSkipped ? '↷ Skipped' : '○ Upcoming';
+        const statusBadgeCol = isVisited ? '#059669' : isApproaching ? '#D97706' : '#6B7280';
+
+        const popupDiv = document.createElement('div');
+        popupDiv.style.cssText = 'font-family: sans-serif; font-size: 12px; line-height: 1.4; padding: 4px; min-width: 200px;';
+        popupDiv.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-size: 10px; font-weight: bold; color: white; background: ${bgCol}; padding: 2px 6px; border-radius: 4px;">
+              ${stop.order} · ${stop.category || 'AI Stop'}
+            </span>
+            <span style="font-size: 10px; color: ${statusBadgeCol}; font-weight: bold;">
+              ${statusLabel}
+            </span>
+          </div>
+          <strong style="color: #1F2937; font-size: 13px;">${stop.name}</strong><br/>
+          <span style="color: #D97706; font-size: 11px;">⭐ AI Recommended · ${stop.suggestedDuration || '25 min stop'}</span><br/>
+          <p style="color: #4B5563; font-size: 11px; margin: 4px 0 6px 0;">${stop.description || stop.whyVisit || 'Verified Bihar heritage landmark'}</p>
+          <div style="display: flex; gap: 4px; border-top: 1px solid #E5E7EB; padding-top: 6px;">
+            <button id="btn-popup-nav-${stop.id}" style="flex: 1; background: #C05621; color: white; border: none; padding: 5px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">
+              🚀 Navigate Here
+            </button>
+            ${!isVisited && !isSkipped ? `
+              <button id="btn-popup-skip-${stop.id}" style="background: #E5E7EB; color: #4B5563; border: none; padding: 5px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">
+                ↷ Skip Stop
+              </button>
+            ` : ''}
           </div>
         `;
-        marker.bindPopup(popupContent);
-        markersRef.current[wp.id] = marker;
+
+        marker.bindPopup(popupDiv);
+
+        marker.on('popupopen', () => {
+          setTimeout(() => {
+            document.getElementById(`btn-popup-nav-${stop.id}`)?.addEventListener('click', () => {
+              map.closePopup();
+              handleNavigateToStop(stop.id);
+            });
+            document.getElementById(`btn-popup-skip-${stop.id}`)?.addEventListener('click', () => {
+              map.closePopup();
+              handleSkipStop(stop.id);
+            });
+          }, 50);
+        });
+
+        markersRef.current[stop.id] = marker;
       });
 
       // 3. Live User GPS Position Marker
@@ -716,7 +915,44 @@ export default function Itinerary() {
         </div>
       </div>
 
-      {/* Notifications */}
+      {/* Notifications & Dynamic Banners */}
+      {stopReachedToast && (
+        <div className="bg-emerald-700 text-white p-4 rounded-2xl shadow-xl font-bold text-sm flex items-center justify-between animate-fade-in border border-emerald-500">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+            <span>📍 Stop reached: <strong className="text-white underline">{stopReachedToast.name}</strong> (AI Stop #{stopReachedToast.number} completed)</span>
+          </div>
+          <button onClick={() => setStopReachedToast(null)} className="text-emerald-200 hover:text-white p-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {reorderSuggestion && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 p-4 rounded-2xl text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md animate-fade-in">
+          <div className="flex items-center gap-2.5">
+            <Compass className="w-5 h-5 text-amber-700 shrink-0" />
+            <span>
+              <strong>↗ Route Suggestion:</strong> <span className="font-bold text-amber-950">{reorderSuggestion.suggestedStopName}</span> is now <strong className="text-emerald-700">{reorderSuggestion.timeSavings} closer</strong> than {reorderSuggestion.currentStopName}.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleApplySuggestedOrder}
+              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer"
+            >
+              Use Suggested Order
+            </button>
+            <button
+              onClick={() => setReorderSuggestion(null)}
+              className="px-3.5 py-2 bg-white border border-amber-200 text-amber-800 font-semibold rounded-xl text-xs hover:bg-amber-100 cursor-pointer"
+            >
+              Keep My Plan
+            </button>
+          </div>
+        </div>
+      )}
+
       {saveStatus && (
         <div className="bg-yatra-forest/10 border border-yatra-forest/20 text-yatra-forest p-4 rounded-xl text-sm font-semibold animate-fade-in">
           {saveStatus}
@@ -828,7 +1064,7 @@ export default function Itinerary() {
           </p>
         </div>
 
-        <div className="flex items-center gap-4 border-l-0 md:border-l border-gray-100 pl-0 md:pl-8">
+        <div className="flex flex-wrap items-center gap-4 border-l-0 md:border-l border-gray-100 pl-0 md:pl-8">
           <div>
             <span className="text-[10px] text-gray-400 uppercase font-semibold block">Total Estimated Budget</span>
             <span className="text-3xl font-bold text-yatra-terracotta font-serif">₹{trip.totalCost}</span>
@@ -837,6 +1073,34 @@ export default function Itinerary() {
                 ? `₹${trip.savings} saved vs standard estimates` 
                 : `₹${trip.costPerPerson || Math.round(trip.totalCost / (trip.totalTravellers || 2))} / person`}
             </span>
+          </div>
+
+          {/* Compact "My Vehicle" Selector */}
+          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-2xl border border-gray-200 text-xs">
+            <button
+              onClick={() => handleVehicleChange('Car')}
+              className={`px-3 py-2 rounded-xl font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                selectedVehicle === 'Car' ? 'bg-yatra-charcoal text-white shadow-sm' : 'text-gray-600 hover:text-yatra-charcoal'
+              }`}
+            >
+              🚗 Car
+            </button>
+            <button
+              onClick={() => handleVehicleChange('Bike')}
+              className={`px-3 py-2 rounded-xl font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                selectedVehicle === 'Bike' ? 'bg-yatra-charcoal text-white shadow-sm' : 'text-gray-600 hover:text-yatra-charcoal'
+              }`}
+            >
+              🏍️ Bike
+            </button>
+            <button
+              onClick={() => handleVehicleChange('Bus')}
+              className={`px-3 py-2 rounded-xl font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                selectedVehicle === 'Bus' ? 'bg-yatra-charcoal text-white shadow-sm' : 'text-gray-600 hover:text-yatra-charcoal'
+              }`}
+            >
+              🚌 Bus
+            </button>
           </div>
 
           {!isNavigating ? (
@@ -972,7 +1236,7 @@ export default function Itinerary() {
           <div className="relative w-full rounded-2xl border border-gray-200 overflow-hidden shadow-inner">
             <div 
               id="itinerary-map" 
-              className="w-full h-96 md:h-[450px] z-10"
+              className="w-full h-96 md:h-[460px] z-10"
               style={{ minHeight: '384px' }}
             ></div>
 
@@ -1014,6 +1278,35 @@ export default function Itinerary() {
               </div>
             )}
 
+            {/* Next Stop Intelligence Card (floating top-right when not actively navigating HUD) */}
+            {!isNavigating && journeyStops.find(s => s.status !== 'visited' && s.status !== 'skipped') && (
+              <div className="absolute top-3 right-3 z-[400] bg-white/95 backdrop-blur-md text-yatra-charcoal border border-gray-200 rounded-2xl p-3.5 shadow-xl max-w-xs space-y-1 animate-in fade-in hidden sm:block">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-1">
+                  <span className="text-[10px] font-bold text-yatra-terracotta uppercase tracking-wider flex items-center gap-1">
+                    <MapPin className="w-3 h-3" /> Next AI Stop
+                  </span>
+                  <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
+                    {journeyStops.find(s => s.status !== 'visited' && s.status !== 'skipped')?.category || 'AI Pick'}
+                  </span>
+                </div>
+                <h4 className="font-bold text-xs text-yatra-charcoal truncate">
+                  {journeyStops.find(s => s.status !== 'visited' && s.status !== 'skipped')?.order} · {journeyStops.find(s => s.status !== 'visited' && s.status !== 'skipped')?.name}
+                </h4>
+                <p className="text-[10px] text-gray-500 line-clamp-1">
+                  {journeyStops.find(s => s.status !== 'visited' && s.status !== 'skipped')?.whyVisit}
+                </p>
+                <div className="flex items-center justify-between pt-1 text-[10px] text-gray-600 font-medium">
+                  <span>⭐ {journeyStops.find(s => s.status !== 'visited' && s.status !== 'skipped')?.suggestedDuration}</span>
+                  <button
+                    onClick={() => handleNavigateToStop(journeyStops.find(s => s.status !== 'visited' && s.status !== 'skipped')?.id)}
+                    className="text-yatra-terracotta font-bold hover:underline"
+                  >
+                    Navigate 🚀
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Re-center Floating Action Button */}
             {isNavigating && isMapUserPanned && (
               <button
@@ -1030,8 +1323,10 @@ export default function Itinerary() {
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">🎉</span>
                   <div>
-                    <h4 className="font-bold text-sm text-white">📍 You have arrived!</h4>
-                    <p className="text-xs text-emerald-100">{trip.destination} • {navRemainingDist || trip.route?.distanceText || 'Journey Completed'}</p>
+                    <h4 className="font-bold text-sm text-white">📍 Journey Complete!</h4>
+                    <p className="text-xs text-emerald-100">
+                      {journeyStops.filter(s => s.status === 'visited').length} / {journeyStops.length} stops visited • {trip.destination} reached
+                    </p>
                   </div>
                 </div>
                 <button
@@ -1102,23 +1397,173 @@ export default function Itinerary() {
           </div>
         )}
 
+        {/* Route Visual Progress Bar */}
+        <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-100 space-y-2">
+          <div className="flex justify-between items-center text-xs font-semibold text-gray-700">
+            <span className="flex items-center gap-1.5 text-yatra-charcoal">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span>
+              {liveLocationName || trip.startingLocation}
+            </span>
+            <span className="text-[11px] text-gray-500 font-medium">
+              {journeyStops.filter(s => s.status === 'visited').length} / {journeyStops.length} AI Stops Completed
+            </span>
+            <span className="flex items-center gap-1.5 text-yatra-charcoal">
+              {trip.destination}
+              <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block"></span>
+            </span>
+          </div>
+          
+          {/* Progress Track */}
+          <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden flex">
+            <div 
+              className="bg-gradient-to-r from-blue-600 to-yatra-terracotta h-full transition-all duration-500 rounded-full"
+              style={{ 
+                width: `${Math.max(8, Math.min(100, Math.round((journeyStops.filter(s => s.status === 'visited').length / Math.max(1, journeyStops.length)) * 100)))}%` 
+              }}
+            ></div>
+          </div>
+        </div>
+
+        {/* Personal Vehicle Journey Summary Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-yatra-cream/40 p-3 rounded-2xl border border-yatra-terracotta/15 text-center text-xs">
+          <div className="bg-white p-2 rounded-xl border border-gray-100">
+            <span className="text-[10px] text-gray-400 font-bold block uppercase">My Vehicle</span>
+            <span className="font-bold text-yatra-charcoal">{selectedVehicle === 'Car' ? '🚗 Car' : selectedVehicle === 'Bike' ? '🏍️ Bike' : '🚌 Bus'}</span>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-gray-100">
+            <span className="text-[10px] text-gray-400 font-bold block uppercase">Total Distance</span>
+            <span className="font-bold text-yatra-charcoal">{dualRoutes?.fastest?.distanceText || trip.route?.distanceText || '128 km'}</span>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-gray-100">
+            <span className="text-[10px] text-gray-400 font-bold block uppercase">Total ETA</span>
+            <span className="font-bold text-yatra-gold">{dualRoutes?.fastest?.durationText || trip.route?.durationText || '3h 15m'}</span>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-gray-100">
+            <span className="text-[10px] text-gray-400 font-bold block uppercase">AI Stops</span>
+            <span className="font-bold text-emerald-600">{journeyStops.filter(s => s.status === 'visited').length} / {journeyStops.length} Visited</span>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-gray-100 col-span-2 sm:col-span-1">
+            <span className="text-[10px] text-gray-400 font-bold block uppercase">Route Pulse</span>
+            <span className="font-bold text-yatra-charcoal">{routePulse?.summary?.temp || 29}°C · {routePulse?.summary?.condition || 'Clear'}</span>
+          </div>
+        </div>
+
         {/* Interactive Stops Bar */}
         <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
           <span className="text-xs font-semibold text-gray-500 self-center">Interactive Stops:</span>
-          {trip.mapData?.waypoints?.map((wp: any) => (
+          {journeyStops.map((stop: any) => (
             <button
-              key={wp.id}
-              onClick={() => handleSelectStop(wp.id, wp.lat, wp.lng)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
-                selectedStopId === wp.id
+              key={stop.id}
+              onClick={() => handleSelectStop(stop.id, stop.lat, stop.lng)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                selectedStopId === stop.id
                   ? 'bg-yatra-charcoal text-white border-yatra-charcoal shadow-sm'
+                  : stop.status === 'visited'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  : stop.status === 'approaching'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  : stop.status === 'skipped'
+                  ? 'bg-gray-50 text-gray-400 border-gray-200 line-through'
                   : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
               }`}
             >
-              {wp.name}
+              <span>{stop.status === 'visited' ? '✓' : stop.status === 'skipped' ? '↷' : `${stop.order} ·`}</span>
+              {stop.name}
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Synchronized Journey Stop Timeline */}
+      <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-premium space-y-4">
+        <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+          <div>
+            <span className="text-xs font-bold text-yatra-terracotta uppercase tracking-wider block">Live Synchronized</span>
+            <h3 className="font-serif font-bold text-xl text-yatra-charcoal">Your Journey Timeline</h3>
+          </div>
+          <button
+            onClick={() => setIsTimelineExpanded(!isTimelineExpanded)}
+            className="text-xs text-yatra-terracotta font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            {isTimelineExpanded ? 'Collapse Timeline' : 'Expand Timeline'}
+            {isTimelineExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {isTimelineExpanded && (
+          <div className="space-y-3">
+            {journeyStops.map((stop: any) => {
+              const isVisited = stop.status === 'visited';
+              const isApproaching = stop.status === 'approaching';
+              const isSkipped = stop.status === 'skipped';
+
+              return (
+                <div 
+                  key={stop.id}
+                  className={`flex items-start gap-4 p-3.5 rounded-2xl border transition-all ${
+                    isApproaching 
+                      ? 'bg-amber-50/70 border-amber-300 shadow-sm' 
+                      : isVisited 
+                      ? 'bg-emerald-50/40 border-emerald-200' 
+                      : isSkipped 
+                      ? 'bg-gray-50 border-gray-200 opacity-60' 
+                      : 'bg-white border-gray-100 hover:border-gray-200'
+                  }`}
+                >
+                  {/* Marker Order Badge */}
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 text-white shadow-sm ${
+                    isVisited ? 'bg-emerald-600' : isSkipped ? 'bg-gray-400' : isApproaching ? 'bg-amber-600 ring-2 ring-amber-300 animate-pulse' : 'bg-yatra-terracotta'
+                  }`}>
+                    {isVisited ? '✓' : isSkipped ? '↷' : stop.order}
+                  </div>
+
+                  {/* Stop Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center justify-between gap-1">
+                      <h4 className={`font-bold text-sm ${isSkipped ? 'line-through text-gray-500' : 'text-yatra-charcoal'}`}>
+                        {stop.name}
+                      </h4>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isVisited ? 'bg-emerald-100 text-emerald-800' : isApproaching ? 'bg-amber-100 text-amber-800' : isSkipped ? 'bg-gray-100 text-gray-600' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        {isVisited ? `✓ Visited ${stop.visitedAt ? `(${stop.visitedAt})` : ''}` : isApproaching ? '◉ Approaching (<10km)' : isSkipped ? '↷ Skipped' : '○ Upcoming'}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{stop.whyVisit || stop.description}</p>
+                    <div className="flex items-center gap-3 text-[11px] text-gray-400 mt-1 font-medium">
+                      <span>🕒 {stop.time || 'Visit Point'}</span>
+                      <span>·</span>
+                      <span>⭐ {stop.suggestedDuration}</span>
+                      <span>·</span>
+                      <span className="text-yatra-terracotta">{stop.category}</span>
+                    </div>
+                  </div>
+
+                  {/* Quick Action Buttons */}
+                  <div className="flex items-center gap-1.5 shrink-0 self-center">
+                    <button
+                      onClick={() => handleNavigateToStop(stop.id)}
+                      className="px-2.5 py-1.5 bg-yatra-terracotta hover:bg-yatra-amber text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
+                      title="Navigate Directly to Stop"
+                    >
+                      🚀
+                    </button>
+                    {!isVisited && !isSkipped && (
+                      <button
+                        onClick={() => handleSkipStop(stop.id)}
+                        className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                        title="Skip Stop"
+                      >
+                        ↷
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Day-by-Day Itinerary Tabs */}

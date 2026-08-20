@@ -412,12 +412,13 @@ router.all('/routes/dual', async (req, res) => {
 // 23. POST /api/routes/recalculate - Live Navigation Off-Route Recalculation
 router.post('/routes/recalculate', async (req, res) => {
   try {
-    const { currentLat, currentLng, destination, transport } = req.body;
+    const { currentLat, currentLng, destination, transport, waypoints } = req.body;
     const currentPlace = reverseGeocodeLocation(parseFloat(currentLat), parseFloat(currentLng));
     const dualResult = await calculateDualRoutes(
       { latitude: parseFloat(currentLat), longitude: parseFloat(currentLng), name: currentPlace.name },
       destination || 'Bihar Museum',
-      transport || 'Mixed'
+      transport || 'Mixed',
+      waypoints || []
     );
     
     res.json({
