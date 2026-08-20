@@ -24,7 +24,6 @@ export default function Experiences() {
     setSlots(1);
     setEmail('');
   };
-  
 
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
