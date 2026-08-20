@@ -11,6 +11,7 @@ import { findDiscoveriesNearRoute } from '../services/discoveryService.js';
 
 const router = express.Router();
 
+
 // 1. GET /api/destinations - List of all standard destinations
 router.get('/destinations', (req, res) => {
   res.json(destinations);
