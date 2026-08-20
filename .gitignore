@@ -1,12 +1,37 @@
+# Dependencies
 node_modules/
+**/node_modules/
+
+# Build outputs
 dist/
+**/dist/
+build/
+**/build/
+frontend/dist/
+
+# Environment files and credentials
 .env
+.env.*
 .env.local
 .env*.local
+
+# Logs and debug files
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cache and temp files
+.cache/
+**/.cache/
+*.tmp
+*.temp
+scratch/
+
+# OS generated files
 .DS_Store
 Thumbs.db
-scratch/
+
+# Cloned reference folder
 Team-Algoriddle/
-frontend/dist/
+
