@@ -12,6 +12,7 @@ import { useLanguage } from '../context/LanguageContext.tsx';
 import { 
   generateTrip, 
   fetchWeather, 
+  fetchRoutePulseWeather,
   saveOfflinePack, 
   fetchDualRoutes, 
   recalculateRoute, 
@@ -68,6 +69,9 @@ export default function Itinerary() {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [distToNextStepText, setDistToNextStepText] = useState('In 500 m');
   const [destinationReached, setDestinationReached] = useState(false);
+  const [isMapUserPanned, setIsMapUserPanned] = useState(false);
+  const [routePulse, setRoutePulse] = useState<any>(null);
+  const [isRoutePulseExpanded, setIsRoutePulseExpanded] = useState(false);
 
   // Live location & geocoding state
   const [liveCoords, setLiveCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -123,6 +127,11 @@ export default function Itinerary() {
         .then(dual => {
           if (dual) setDualRoutes(dual);
         });
+
+      // Fetch Route Pulse multi-stop weather & intelligent route precautions
+      fetchRoutePulseWeather(loadedTrip.mapData?.waypoints).then(pulse => {
+        if (pulse) setRoutePulse(pulse);
+      });
     } else {
       // If no valid trip exists, return to Planner
       navigate('/planner', { 
@@ -420,6 +429,11 @@ export default function Itinerary() {
         attribution: '© OpenStreetMap contributors',
         maxZoom: 18
       }).addTo(map);
+
+      // Detect manual map panning to show Re-center button
+      map.on('dragstart', () => {
+        setIsMapUserPanned(true);
+      });
 
       // Map Click Event Listener -> Open Interactive Navigation Popup
       map.on('click', (e: L.LeafletMouseEvent) => {
@@ -942,7 +956,7 @@ export default function Itinerary() {
           </div>
         )}
 
-        {/* Leaflet Map Container */}
+        {/* Leaflet Map Container with Google Maps-Style Navigation Overlays */}
         {mapError ? (
           <div className="w-full h-80 bg-gray-50 rounded-2xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-500 gap-2">
             <Map className="w-8 h-8 text-gray-400" />
@@ -955,11 +969,137 @@ export default function Itinerary() {
             </button>
           </div>
         ) : (
-          <div 
-            id="itinerary-map" 
-            className="w-full h-96 rounded-2xl border border-gray-200 z-10"
-            style={{ minHeight: '384px' }}
-          ></div>
+          <div className="relative w-full rounded-2xl border border-gray-200 overflow-hidden shadow-inner">
+            <div 
+              id="itinerary-map" 
+              className="w-full h-96 md:h-[450px] z-10"
+              style={{ minHeight: '384px' }}
+            ></div>
+
+            {/* Google Maps-Style Compact Floating Driving Navigation Header */}
+            {isNavigating && (
+              <div className="absolute top-3 left-3 right-3 z-[400] bg-yatra-charcoal/95 backdrop-blur-md text-white rounded-2xl p-3.5 shadow-2xl border border-gray-700/80 flex flex-col gap-2 animate-in fade-in slide-in-from-top-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-yatra-terracotta flex items-center justify-center text-white text-2xl font-bold shadow-md shrink-0">
+                      {getManeuverSymbol(currentStep?.maneuver)}
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-yatra-gold tracking-wider block">
+                        {distToNextStepText}
+                      </span>
+                      <h4 className="font-serif font-bold text-sm text-white leading-tight">
+                        {translateInstruction(currentStep?.instruction || "Continue on road corridor")}
+                      </h4>
+                      {currentStep?.roadName && (
+                        <p className="text-[11px] text-gray-300">
+                          {currentStep.roadName}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={stopNavigation}
+                    className="px-3 py-1.5 rounded-lg bg-red-600/90 hover:bg-red-600 text-white text-xs font-bold transition-colors cursor-pointer shrink-0"
+                  >
+                    {t('route.stopNav')}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-gray-300 border-t border-gray-700/80 pt-2 font-medium">
+                  <span>📍 {trip.destination}</span>
+                  <span className="text-yatra-gold font-bold">{navRemainingTime}</span>
+                  <span>{navRemainingDist} remaining</span>
+                </div>
+              </div>
+            )}
+
+            {/* Re-center Floating Action Button */}
+            {isNavigating && isMapUserPanned && (
+              <button
+                onClick={handleRecenterMap}
+                className="absolute top-28 right-4 z-[400] bg-blue-600 text-white font-bold text-xs px-3.5 py-2 rounded-full shadow-xl border border-blue-400 hover:bg-blue-700 transition-all flex items-center gap-1.5 cursor-pointer animate-bounce"
+              >
+                <Navigation className="w-3.5 h-3.5" /> Re-center
+              </button>
+            )}
+
+            {/* Arrival Experience Compact Banner */}
+            {destinationReached && (
+              <div className="absolute top-4 left-4 right-4 z-[400] bg-emerald-800 text-white rounded-2xl p-4 shadow-2xl border border-emerald-600 flex items-center justify-between animate-in fade-in">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🎉</span>
+                  <div>
+                    <h4 className="font-bold text-sm text-white">📍 You have arrived!</h4>
+                    <p className="text-xs text-emerald-100">{trip.destination} • {navRemainingDist || trip.route?.distanceText || 'Journey Completed'}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDestinationReached(false)}
+                  className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white text-xs rounded-lg font-semibold cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Compact "Route Pulse" Weather & Precaution Expandable Pill */}
+            {routePulse && (
+              <div className="absolute bottom-3 left-3 z-[400] flex flex-col gap-2 max-w-xs md:max-w-sm">
+                {/* Collapsed Pill */}
+                <button
+                  onClick={() => setIsRoutePulseExpanded(!isRoutePulseExpanded)}
+                  className="bg-white/95 backdrop-blur-md text-yatra-charcoal border border-gray-200 rounded-full px-3.5 py-2 text-xs font-bold shadow-lg hover:border-yatra-terracotta transition-all flex items-center gap-2 cursor-pointer w-fit"
+                >
+                  <span>☀ Route Pulse</span>
+                  <span className="text-yatra-slate font-medium">· {routePulse.summary?.temp || 29}°C</span>
+                  <span className="text-yatra-slate font-medium">· {routePulse.summary?.condition || 'Clear'}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${routePulse.summary?.status === 'Alert' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+                    {routePulse.summary?.status || 'Safe'}
+                  </span>
+                  {isRoutePulseExpanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-500" /> : <ChevronUp className="w-3.5 h-3.5 text-gray-500" />}
+                </button>
+
+                {/* Expanded Panel */}
+                {isRoutePulseExpanded && (
+                  <div className="bg-white/95 backdrop-blur-md rounded-2xl p-4 border border-gray-200 shadow-2xl text-xs space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                      <span className="font-bold text-yatra-charcoal flex items-center gap-1.5">
+                        <CloudSun className="w-4 h-4 text-yatra-terracotta" /> Route Pulse Insights
+                      </span>
+                      <button onClick={() => setIsRoutePulseExpanded(false)} className="text-gray-400 hover:text-gray-600 p-0.5">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Intermediate Route Weather */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {routePulse.routeStops?.map((stop: any, idx: number) => (
+                        <div key={idx} className="bg-gray-50 p-2 rounded-xl border border-gray-100 text-[11px]">
+                          <span className="font-bold text-yatra-charcoal block truncate">{stop.stopName}</span>
+                          <span className="text-gray-500">{stop.temp}°C • {stop.condition}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Intelligent Route Precautions */}
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] font-bold text-yatra-terracotta uppercase tracking-wider block">Route Precautions</span>
+                      {routePulse.precautions?.map((prec: any) => (
+                        <div key={prec.id} className="bg-amber-50/80 border border-amber-200/60 p-2 rounded-xl text-[11px] text-amber-900 flex items-start gap-2">
+                          <span className="text-sm shrink-0">{prec.icon}</span>
+                          <div>
+                            <strong className="block text-amber-950 font-bold">{prec.title}</strong>
+                            <span className="text-amber-800 text-[10px]">{prec.message}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Interactive Stops Bar */}

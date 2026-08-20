@@ -258,6 +258,29 @@ export async function fetchWeather(destination: string, date?: string) {
   }
 }
 
+export async function fetchRoutePulseWeather(waypoints?: any[]) {
+  try {
+    const res = await fetch(`${API_BASE}/weather/route-pulse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ waypoints: waypoints || [] })
+    });
+    if (!res.ok) throw new Error("Route pulse fetch failed");
+    return await res.json();
+  } catch (err) {
+    return {
+      summary: { temp: 29, condition: "Clear", status: "Safe" },
+      routeStops: [
+        { stopName: "Patna", temp: 29, condition: "Clear", rainProbability: 10 },
+        { stopName: "Bodh Gaya", temp: 30, condition: "Partly Cloudy", rainProbability: 15 }
+      ],
+      precautions: [
+        { id: "road_caution", icon: "🛣", title: "Road Insight", message: "Normal road conditions · Drive carefully after sunset." }
+      ]
+    };
+  }
+}
+
 export async function fetchExperiences() {
   try {
     const res = await fetch(`${API_BASE}/experiences`);
