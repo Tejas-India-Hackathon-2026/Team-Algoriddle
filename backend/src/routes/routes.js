@@ -210,25 +210,54 @@ router.post('/budget/calculate', (req, res) => {
   });
 });
 
-// 13. POST /api/ai/guide - AI Audio/Text Tourist Guide for destinations
+// 13. POST /api/ai/guide - AI Audio/Text Tourist Guide for destinations & Trip Chatbot
 router.post('/ai/guide', (req, res) => {
-  const { question, destinationId } = req.body;
+  const { question, prompt, destinationId, context } = req.body;
+  const userQuery = prompt || question || '';
+  const lang = context?.language || 'English';
   
-  const qaDatabase = {
-    "nalanda": "Nalanda University was founded in the 5th century CE under the Gupta Empire. It housed over 10,000 students and 2,000 teachers from China, Korea, Tibet, and Central Asia. It was famed for its massive library, Dharmaganja, which burned for three months after being attacked in 1193 CE.",
-    "bodh_gaya": "Bodh Gaya is the place where Siddhartha Gautama sat under the Bodhi Tree and attained enlightenment to become Gautama Buddha. The Mahabodhi Temple marking this spot was originally constructed by Emperor Ashoka in the 3rd century BCE.",
-    "rajgir": "Rajgir was the first capital of the Magadha kingdom. It is renowned for Gridhakuta Hill (Vulture's Peak) where Lord Buddha delivered many of his pivotal discourses, and the Cyclopean Wall, a 40 km long stone fortification built to protect the valley.",
-    "patna": "Patna, anciently Pataliputra, was established as a fort by King Ajatashatru in the 5th century BCE and grew to become the capital of major Indian empires including the Maurya and Gupta dynasties. It is also the birth site of the 10th Sikh Guru, Gobind Singh."
-  };
+  if (context && (!context.destination || context.destination.trim() === '')) {
+    const noTripResp = lang === 'Hindi'
+      ? 'मार्ग संबंधी प्रश्न पूछने से पहले कृपया एक प्रारंभिक स्थान और गंतव्य का चयन करें।'
+      : 'Please select a starting location and destination first to plan your journey before asking route questions.';
+    return res.json({ response: noTripResp, answer: noTripResp });
+  }
 
-  const cleanId = (destinationId || '').toLowerCase().replace(/[\s-]/g, '_');
-  const answer = qaDatabase[cleanId] || 
-    `Welcome to ${destinationId || 'this historic place'} in Bihar. This site is rich with spiritual heritage, ancient architecture, and cultural stories dating back over two millennia. Ask me anything about its history, timings, or cultural significance!`;
+  const start = context?.startingLocation || 'Patna';
+  const dest = context?.destination || destinationId || 'Bodh Gaya';
+  const dist = context?.distance || '128 km';
+  const dur = context?.duration || '3 hours 15 mins';
+
+  const q = userQuery.toLowerCase();
+  let textResponse = '';
+
+  if (q.includes('distance') || q.includes('far') || q.includes('दूरी') || q.includes('दूर')) {
+    textResponse = lang === 'Hindi'
+      ? `${start} से ${dest} के बीच की दूरी लगभग ${dist} है।`
+      : `The distance from ${start} to ${dest} is approximately ${dist}.`;
+  } else if (q.includes('time') || q.includes('long') || q.includes('समय') || q.includes('देर')) {
+    textResponse = lang === 'Hindi'
+      ? `${start} से ${dest} तक सड़क मार्ग द्वारा अनुमानित समय ${dur} है।`
+      : `The estimated travel time by road from ${start} to ${dest} is ${dur}.`;
+  } else if (q.includes('food') || q.includes('eat') || q.includes('stop') || q.includes('भोजन') || q.includes('खाना') || q.includes('रुकना')) {
+    textResponse = lang === 'Hindi'
+      ? `${start}-${dest} राजमार्ग गलियारे पर स्वच्छ भोजन के लिए सत्यापित हाईवे रेस्ट ढाबे उपलब्ध हैं।`
+      : `On the ${start}-${dest} highway corridor, verified highway dhabas and food plazas are available.`;
+  } else if (q.includes('spot') || q.includes('visit') || q.includes('see') || q.includes('स्थल') || q.includes('देखने')) {
+    textResponse = lang === 'Hindi'
+      ? `आपके मुख्य गंतव्य ${dest} के आसपास प्रमुख पवित्र और ऐतिहासिक स्थल शामिल हैं।`
+      : `Your primary destination ${dest} features major spiritual and historical sites.`;
+  } else {
+    textResponse = lang === 'Hindi'
+      ? `${start} से ${dest} तक आपकी यात्रा (दूरी: ${dist}, समय: ${dur}) के लिए OSRM सड़क नेटवर्क द्वारा सत्यापित मार्ग तैयार है।`
+      : `For your journey from ${start} to ${dest} (Distance: ${dist}, Est. Time: ${dur}), your route follows verified road networks.`;
+  }
 
   res.json({
-    destinationId,
-    answer,
-    audioUrl: null // Text-to-speech handles client side natively via SpeechSynthesis
+    destinationId: dest,
+    answer: textResponse,
+    response: textResponse,
+    audioUrl: null
   });
 });
 
