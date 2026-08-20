@@ -8,6 +8,7 @@ import {
   CreditCard, ShieldCheck, HelpCircle, PhoneCall, Radio, Zap
 } from 'lucide-react';
 import L from 'leaflet';
+import { useLanguage } from '../context/LanguageContext.tsx';
 import { 
   generateTrip, 
   fetchWeather, 
@@ -44,6 +45,7 @@ function getManeuverSymbol(maneuver?: string) {
 }
 
 export default function Itinerary() {
+  const { language, t, translateInstruction } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const [trip, setTrip] = useState<any>(null);
@@ -61,6 +63,7 @@ export default function Itinerary() {
   const [isNavigating, setIsNavigating] = useState(false);
   const [navRemainingDist, setNavRemainingDist] = useState('');
   const [navRemainingTime, setNavRemainingTime] = useState('');
+  const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   const [routeChangedNotice, setRouteChangedNotice] = useState<string | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [distToNextStepText, setDistToNextStepText] = useState('In 500 m');
@@ -198,6 +201,72 @@ export default function Itinerary() {
     );
   };
 
+  const handleRecenterMap = () => {
+    if (mapRef.current && liveCoords) {
+      mapRef.current.flyTo([liveCoords.lat, liveCoords.lng], 15, { animate: true, duration: 1.0 });
+    } else if (mapRef.current && trip?.mapData?.waypoints?.[0]) {
+      const wp = trip.mapData.waypoints[0];
+      mapRef.current.flyTo([wp.lat, wp.lng], 12, { animate: true, duration: 1.0 });
+    }
+  };
+
+  const handleMapClickAction = async (action: 'nav_here' | 'set_dest' | 'set_start', lat: number, lng: number) => {
+    try {
+      const geo = await reverseGeocode(lat, lng);
+      const placeName = geo.name || `GPS (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
+      const targetObj = {
+        name: placeName,
+        address: geo.address,
+        city: geo.city,
+        district: geo.district,
+        state: "Bihar",
+        latitude: lat,
+        longitude: lng
+      };
+
+      if (action === 'nav_here') {
+        const origin = liveCoords 
+          ? { latitude: liveCoords.lat, longitude: liveCoords.lng, name: liveLocationName || "📍 Current Position" }
+          : (trip?.startLocation || trip?.startingLocation || "Patna");
+        
+        const newTrip = {
+          ...trip,
+          destination: placeName,
+          startingLocation: typeof origin === 'string' ? origin : (origin.name || "📍 Current Location"),
+          startLocation: origin
+        };
+        setTrip(newTrip);
+        localStorage.setItem('yatra_active_trip', JSON.stringify(newTrip));
+
+        const dual = await fetchDualRoutes(origin, placeName, trip?.transport || 'Mixed');
+        if (dual) setDualRoutes(dual);
+        startNavigation();
+      } else if (action === 'set_dest') {
+        const newTrip = { ...trip, destination: placeName };
+        setTrip(newTrip);
+        localStorage.setItem('yatra_active_trip', JSON.stringify(newTrip));
+        const origin = trip?.startLocation || trip?.userCoordinates || trip?.startingLocation;
+        const dual = await fetchDualRoutes(origin, placeName, trip?.transport || 'Mixed');
+        if (dual) setDualRoutes(dual);
+      } else if (action === 'set_start') {
+        const newTrip = { 
+          ...trip, 
+          startingLocation: placeName, 
+          startLocation: targetObj,
+          userCoordinates: { lat, lng }
+        };
+        setTrip(newTrip);
+        localStorage.setItem('yatra_active_trip', JSON.stringify(newTrip));
+        setLiveCoords({ lat, lng });
+        setLiveLocationName(placeName);
+        const dual = await fetchDualRoutes(targetObj, trip?.destination, trip?.transport || 'Mixed');
+        if (dual) setDualRoutes(dual);
+      }
+    } catch (err) {
+      console.error("Map click action error:", err);
+    }
+  };
+
   const activeRoute = selectedRouteType === 'FASTEST' ? dualRoutes?.fastest : dualRoutes?.safer;
   const activeSteps: any[] = activeRoute?.steps || [];
   const currentStep = activeSteps[currentStepIndex] || activeSteps[0];
@@ -225,6 +294,10 @@ export default function Itinerary() {
       async (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        const speedKmh = (pos.coords.speed !== null && pos.coords.speed !== undefined && !isNaN(pos.coords.speed)) 
+          ? Math.round(pos.coords.speed * 3.6) 
+          : 0;
+        setCurrentSpeed(speedKmh);
         setLiveCoords({ lat, lng });
 
         // Move live marker on map
@@ -347,6 +420,48 @@ export default function Itinerary() {
         attribution: '© OpenStreetMap contributors',
         maxZoom: 18
       }).addTo(map);
+
+      // Map Click Event Listener -> Open Interactive Navigation Popup
+      map.on('click', (e: L.LeafletMouseEvent) => {
+        const { lat, lng } = e.latlng;
+        const popupContent = document.createElement('div');
+        popupContent.style.cssText = 'font-family: sans-serif; font-size: 12px; padding: 4px; text-align: center; font-weight: 500;';
+        popupContent.innerHTML = `
+          <strong style="color: #1F2937;">📍 Location Pin</strong><br/>
+          <span style="color: #6B7280; font-size: 11px;">(${lat.toFixed(4)}, ${lng.toFixed(4)})</span>
+          <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
+            <button id="btn-map-nav-here" style="background:#C05621; color:white; border:none; padding:5px 10px; border-radius:6px; font-weight:bold; font-size:11px; cursor:pointer;">
+              🚀 ${t('map.popup.navigateHere')}
+            </button>
+            <button id="btn-map-set-dest" style="background:#2563EB; color:white; border:none; padding:5px 10px; border-radius:6px; font-weight:bold; font-size:11px; cursor:pointer;">
+              🎯 ${t('map.popup.setAsDest')}
+            </button>
+            <button id="btn-map-set-start" style="background:#059669; color:white; border:none; padding:5px 10px; border-radius:6px; font-weight:bold; font-size:11px; cursor:pointer;">
+              📍 ${t('map.popup.setAsStart')}
+            </button>
+          </div>
+        `;
+
+        L.popup()
+          .setLatLng([lat, lng])
+          .setContent(popupContent)
+          .openOn(map);
+
+        setTimeout(() => {
+          document.getElementById('btn-map-nav-here')?.addEventListener('click', () => {
+            map.closePopup();
+            handleMapClickAction('nav_here', lat, lng);
+          });
+          document.getElementById('btn-map-set-dest')?.addEventListener('click', () => {
+            map.closePopup();
+            handleMapClickAction('set_dest', lat, lng);
+          });
+          document.getElementById('btn-map-set-start')?.addEventListener('click', () => {
+            map.closePopup();
+            handleMapClickAction('set_start', lat, lng);
+          });
+        }, 50);
+      });
 
       // Force recalculation of container size after mounting to prevent blank tiles
       setTimeout(() => {
@@ -623,7 +738,7 @@ export default function Itinerary() {
                   {distToNextStepText}
                 </span>
                 <h3 className="font-serif font-bold text-xl text-white">
-                  {currentStep?.instruction || "Follow road corridor to destination"}
+                  {translateInstruction(currentStep?.instruction || "Follow road corridor to destination")}
                 </h3>
                 {currentStep?.roadName && (
                   <p className="text-xs text-gray-300 mt-0.5">
@@ -644,11 +759,16 @@ export default function Itinerary() {
                 <span className="text-[10px] text-gray-400 block uppercase">ETA</span>
                 <span className="text-base font-bold text-yatra-gold">{navRemainingTime}</span>
               </div>
+              <div className="h-8 w-px bg-gray-700"></div>
+              <div>
+                <span className="text-[10px] text-gray-400 block uppercase">{t('common.speed')}</span>
+                <span className="text-base font-bold text-emerald-400">{currentSpeed !== null ? `${currentSpeed} km/h` : '0 km/h'}</span>
+              </div>
               <button
                 onClick={stopNavigation}
                 className="ml-2 px-3.5 py-2 rounded-xl bg-red-600/80 hover:bg-red-600 text-white text-xs font-bold transition-colors cursor-pointer"
               >
-                Stop
+                {t('route.stopNav')}
               </button>
             </div>
           </div>
@@ -658,12 +778,12 @@ export default function Itinerary() {
             <div>
               <span>Step {currentStepIndex + 1} of {Math.max(1, activeSteps.length)}: </span>
               <span className="text-white font-medium">
-                {nextStep ? `Then ${nextStep.instruction}` : "Arriving at final destination"}
+                {nextStep ? `Then ${translateInstruction(nextStep.instruction)}` : "Arriving at final destination"}
               </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-[11px] text-gray-400">
-                Route: <strong className="text-yatra-gold">{selectedRouteType === 'FASTEST' ? '⚡ Fastest Route' : '🛡 Safer Route'}</strong>
+                Route: <strong className="text-yatra-gold">{selectedRouteType === 'FASTEST' ? t('route.fastest') : t('route.safer')}</strong>
               </span>
               <span className="text-[11px] text-gray-400">
                 Destination: <strong className="text-white">{trip.destination}</strong>
@@ -729,6 +849,14 @@ export default function Itinerary() {
           <div className="flex items-center gap-2">
             <MapPin className="w-5 h-5 text-yatra-terracotta" />
             <h3 className="font-serif font-bold text-lg text-yatra-charcoal">Interactive Journey Route Map</h3>
+            <button
+              onClick={handleRecenterMap}
+              className="ml-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 transition-colors flex items-center gap-1 cursor-pointer"
+              title="Recenter Map on My Location"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              {t('route.recenter')}
+            </button>
           </div>
 
           {/* Dual Route Toggle: Fastest vs Safer */}

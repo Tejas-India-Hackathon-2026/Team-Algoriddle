@@ -16,25 +16,16 @@ import Admin from './pages/Admin.tsx';
 import Login from './pages/Login.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 import { AuthProvider, useAuth } from './context/AuthContext.tsx';
+import { LanguageProvider, useLanguage } from './context/LanguageContext.tsx';
+import { Chatbot } from './components/Chatbot.tsx';
 import { isOffline, registerNetworkStatusListener } from './services/offline.ts';
 
 function AppContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [online, setOnline] = useState(!isOffline());
-  const [language, setLanguage] = useState('English');
+  const { language, toggleLanguage, t } = useLanguage();
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const unsubscribe = registerNetworkStatusListener((isOnline) => {
-      setOnline(isOnline);
-    });
-    return unsubscribe;
-  }, []);
-
-  const toggleLanguage = () => {
-    setLanguage(prev => prev === 'English' ? 'Hindi' : prev === 'Hindi' ? 'Bhojpuri' : 'English');
-  };
 
   const handleLogout = async () => {
     await logout();
@@ -294,6 +285,9 @@ function AppContent() {
         </div>
       </footer>
 
+      {/* Global Floating Trip-Aware AI Chatbot */}
+      <Chatbot />
+
     </div>
   );
 }
@@ -301,9 +295,11 @@ function AppContent() {
 export default function App() {
   return (
     <Router>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </LanguageProvider>
     </Router>
   );
 }

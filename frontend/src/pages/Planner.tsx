@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, Users, Briefcase, UserCheck, Heart, Sparkles, Check, ChevronRight, ChevronLeft, Navigation, MapPin, AlertCircle } from 'lucide-react';
 import { reverseGeocode } from '../services/api.ts';
+import { useLanguage } from '../context/LanguageContext.tsx';
 
 const BIHAR_DISTRICTS = [
   "Araria",
@@ -45,6 +46,7 @@ const BIHAR_DISTRICTS = [
 ];
 
 export default function Planner() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -286,12 +288,8 @@ export default function Planner() {
     setValidationError(null);
 
     if (step === 1) {
-      if (!startingLocation || startingLocation.trim() === '') {
-        setValidationError('Please enter or detect your starting location.');
-        return;
-      }
-      if (!destination || destination.trim() === '') {
-        setValidationError('Please select your destination in Bihar.');
+      if (!startingLocation || startingLocation.trim() === '' || !destination || destination.trim() === '') {
+        setValidationError(t('route.noInputs'));
         return;
       }
       if (!startDate || startDate.trim() === '') {

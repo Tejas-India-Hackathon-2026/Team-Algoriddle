@@ -6,8 +6,10 @@ import {
 } from 'lucide-react';
 import L from 'leaflet';
 import { fetchSafeRoute, fetchNearbyPlaces, estimateFare, reverseGeocode } from '../services/api.ts';
+import { useLanguage } from '../context/LanguageContext.tsx';
 
 export default function RouteBuilder() {
+  const { t } = useLanguage();
   const routerState = useLocation().state;
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
