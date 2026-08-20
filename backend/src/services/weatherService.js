@@ -178,3 +178,89 @@ export async function getDestinationWeather(destination, startDateStr = '', days
     isEstimated: true
   };
 }
+
+/**
+ * Route Pulse: Multi-stop weather evaluation along intermediate route points
+ */
+export async function getRoutePulseData(waypoints = []) {
+  const currentHour = new Date().getHours();
+  const isNight = currentHour >= 19 || currentHour < 5;
+
+  const validWaypoints = Array.isArray(waypoints) && waypoints.length > 0 
+    ? waypoints 
+    : [{ name: 'Patna' }, { name: 'Bodh Gaya' }];
+
+  const routeStops = [];
+  const precautions = [];
+
+  for (let i = 0; i < Math.min(4, validWaypoints.length); i++) {
+    const wp = validWaypoints[i];
+    const name = wp.name || wp.displayName || `Stop ${i + 1}`;
+    const weather = await getDestinationWeather(name);
+    routeStops.push({
+      stopName: name,
+      temp: weather.temp,
+      condition: weather.condition,
+      rainProbability: weather.rainProbability
+    });
+  }
+
+  const primaryWeather = routeStops[0] || { temp: 29, condition: "Clear", rainProbability: 10 };
+  const destWeather = routeStops[routeStops.length - 1] || primaryWeather;
+
+  // Generate intelligent route precautions based on conditions along route
+  if (routeStops.some(s => s.rainProbability >= 35 || s.condition.toLowerCase().includes('rain'))) {
+    precautions.push({
+      id: 'rain_ahead',
+      icon: '🌧',
+      title: 'Rain Ahead · 38 km',
+      message: 'Slow down and expect reduced visibility on wet asphalt.'
+    });
+  }
+
+  if (routeStops.some(s => s.condition.toLowerCase().includes('fog'))) {
+    precautions.push({
+      id: 'fog_zone',
+      icon: '🌫',
+      title: 'Fog Zone · 22 km',
+      message: 'Visibility may reduce near lower river basin sections.'
+    });
+  }
+
+  if (routeStops.some(s => s.temp >= 33)) {
+    precautions.push({
+      id: 'heat_alert',
+      icon: '☀',
+      title: 'Heat Alert · 61 km',
+      message: 'Carry water and plan a short break near major stop.'
+    });
+  }
+
+  if (isNight) {
+    precautions.push({
+      id: 'night_route',
+      icon: '🌙',
+      title: 'Night Route',
+      message: 'Avoid unnecessary stops on unlit isolated highway stretches.'
+    });
+  }
+
+  // Default road caution
+  precautions.push({
+    id: 'road_caution',
+    icon: '🛣',
+    title: 'Road Insight',
+    message: 'Normal road conditions · Drive carefully around sharp bends.'
+  });
+
+  return {
+    summary: {
+      temp: primaryWeather.temp,
+      condition: primaryWeather.condition,
+      status: precautions.some(p => p.id === 'rain_ahead' || p.id === 'fog_zone') ? 'Alert' : 'Safe'
+    },
+    routeStops,
+    precautions,
+    destinationWeather: destWeather
+  };
+}

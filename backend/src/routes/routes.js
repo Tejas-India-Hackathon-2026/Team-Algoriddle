@@ -4,7 +4,7 @@ import { destinations, hiddenGems, experiences, homestays, emergencyPlaces, tran
 import { HIDDEN_DISCOVERIES } from '../data/hiddenGemsData.js';
 import { districtDestinations, getAttractionsForDistrict } from '../data/districtDestinations.js';
 import { calculateRoute, getCoordinatesForPlace, calculateDualRoutes, reverseGeocodeLocation } from '../services/routeService.js';
-import { getDestinationWeather } from '../services/weatherService.js';
+import { getDestinationWeather, getRoutePulseData } from '../services/weatherService.js';
 import { generatePersonalizedTrip } from '../services/tripCalculator.js';
 import { lookupFares, checkFairFare, getAllFares, addFare, updateFare, deleteFare } from '../services/fareGuardService.js';
 import { findDiscoveriesNearRoute } from '../services/discoveryService.js';
@@ -138,6 +138,17 @@ router.get('/weather', async (req, res) => {
     res.json(weather);
   } catch (err) {
     res.status(500).json({ error: "Failed to retrieve weather" });
+  }
+});
+
+// 6b. POST /api/weather/route-pulse - Route Pulse Multi-Stop Weather & Precautions
+router.all('/weather/route-pulse', async (req, res) => {
+  try {
+    const waypoints = req.body?.waypoints || req.query?.waypoints || [];
+    const pulseData = await getRoutePulseData(waypoints);
+    res.json(pulseData);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to retrieve route pulse weather" });
   }
 });
 
