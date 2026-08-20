@@ -85,3 +85,10 @@ The Safe Route system can consider factors beyond distance, such as safety condi
 ```text
 
 Route Cost = Distance + Safety Penalty
+
+
+
+
+
+
+aaa
