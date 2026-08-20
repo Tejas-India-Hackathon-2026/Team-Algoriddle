@@ -12,6 +12,7 @@ const users = [
     role: 'traveler',
     passportLevel: 'Level 1 - Explorer',
     createdAt: new Date().toISOString()
+    
   },
   {
     id: 'user_admin',
