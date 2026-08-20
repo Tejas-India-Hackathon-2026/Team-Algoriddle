@@ -24,6 +24,7 @@ const translations: Record<string, Record<Language, string>> = {
   'nav.signIn': { English: 'Sign In', Hindi: 'साइन इन करें' },
   'nav.signOut': { English: 'Sign Out', Hindi: 'साइन आउट' },
   'nav.planMyTrip': { English: 'Plan My Trip', Hindi: 'अपनी यात्रा प्लान करें' },
+  
 
   // Navigation & Route Panel
   'route.setup': { English: 'Route Setup', Hindi: 'मार्ग योजना' },
